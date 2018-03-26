@@ -9,9 +9,9 @@ dns_nsupdate_add() {
   _checkKeyFile || return 1
   # save the TSIG key and type to the account conf file.
   _saveaccountconf NSUPDATE_KEY "${NSUPDATE_KEY}"
-  _saveaccountconf NSUPDATE_ARGS "${NSUPDATE_ARGS}"
+  _saveaccountconf NSUPDATE_TYPE "${NSUPDATE_TYPE}"
   _info "adding ${fulldomain}. 60 in txt \"${txtvalue}\""
-  nsupdate "${NSUPDATE_ARGS}" <<EOF
+  _nsupdate <<EOF
 update add ${fulldomain}. 60 in txt "${txtvalue}"
 send
 EOF
@@ -28,7 +28,7 @@ dns_nsupdate_rm() {
   fulldomain=$1
   _checkKeyFile || return 1
   _info "removing ${fulldomain}. txt"
-  nsupdate "${NSUPDATE_ARGS}" <<EOF
+  _nsupdate <<EOF
 update delete ${fulldomain}. txt
 send
 EOF
@@ -51,20 +51,23 @@ _checkKeyFile() {
     _err "key ${NSUPDATE_KEY} is unreadable"
     return 1
   fi
-  if [ -z "${NSUPDATE_ARGS}" ]; then
+  if [ -z "${NSUPDATE_TYPE}" ]; then
     if _exists "file"; then
       if file "${NSUPDATE_KEY}" | grep -q "Kerberos";then
-        NSUPDATE_ARGS="-g"
+        NSUPDATE_TYPE="Kerberos"
       else
-        NSUPDATE_ARGS="-k ${NSUPDATE_KEY}"
+        NSUPDATE_TYPE="TSIG"
       fi
     else
       _err "Can't determine ${NSUPDATE_KEY} type."
-      _err "Install file, or set NSUPDATE_ARGS."
+      _err "Install file, or set type."
       return 1
     fi
   fi
-  if _endswith "${NSUPDATE_ARGS}" "-g"; then
+}
+
+_nsupdate() {
+  if [ "$NSUPDATE_TYPE" = "Kerberos" ]; then
     if _exists kinit; then
       if ! kinit -k -t "${NSUPDATE_KEY}"; then
         _err "Couldn't acquire kerberos ticket."
@@ -74,5 +77,8 @@ _checkKeyFile() {
       _err "kinit not found."
       return 1
     fi
+    nsupdate -g
+  else
+    nsupdate -k "${NSUPDATE_KEY}"
   fi
 }
