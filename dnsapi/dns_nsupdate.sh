@@ -9,6 +9,7 @@ dns_nsupdate_add() {
   NSUPDATE_SERVER="${NSUPDATE_SERVER:-$(_readaccountconf_mutable NSUPDATE_SERVER)}"
   NSUPDATE_SERVER_PORT="${NSUPDATE_SERVER_PORT:-$(_readaccountconf_mutable NSUPDATE_SERVER_PORT)}"
   NSUPDATE_KEY="${NSUPDATE_KEY:-$(_readaccountconf_mutable NSUPDATE_KEY)}"
+  NSUPDATE_TYPE="${NSUPDATE_TYPE:-$(_readaccountconf_mutable NSUPDATE_TYPE)}"
   NSUPDATE_ZONE="${NSUPDATE_ZONE:-$(_readaccountconf_mutable NSUPDATE_ZONE)}"
 
   _checkKeyFile || return 1
@@ -17,6 +18,7 @@ dns_nsupdate_add() {
   _saveaccountconf_mutable NSUPDATE_SERVER "${NSUPDATE_SERVER}"
   _saveaccountconf_mutable NSUPDATE_SERVER_PORT "${NSUPDATE_SERVER_PORT}"
   _saveaccountconf_mutable NSUPDATE_KEY "${NSUPDATE_KEY}"
+  _saveaccountconf_mutable NSUPDATE_TYPE "${NSUPDATE_TYPE}"
   _saveaccountconf_mutable NSUPDATE_ZONE "${NSUPDATE_ZONE}"
 
   [ -n "${NSUPDATE_SERVER}" ] || NSUPDATE_SERVER="localhost"
@@ -26,13 +28,13 @@ dns_nsupdate_add() {
   [ -n "$DEBUG" ] && [ "$DEBUG" -ge "$DEBUG_LEVEL_1" ] && nsdebug="-d"
   [ -n "$DEBUG" ] && [ "$DEBUG" -ge "$DEBUG_LEVEL_2" ] && nsdebug="-D"
   if [ -z "${NSUPDATE_ZONE}" ]; then
-    nsupdate -k "${NSUPDATE_KEY}" $nsdebug <<EOF
+    _nsupdate <<EOF
 server ${NSUPDATE_SERVER}  ${NSUPDATE_SERVER_PORT} 
 update add ${fulldomain}. 60 in txt "${txtvalue}"
 send
 EOF
   else
-    nsupdate -k "${NSUPDATE_KEY}" $nsdebug <<EOF
+    _nsupdate <<EOF
 server ${NSUPDATE_SERVER}  ${NSUPDATE_SERVER_PORT}
 zone ${NSUPDATE_ZONE}.
 update add ${fulldomain}. 60 in txt "${txtvalue}"
@@ -63,13 +65,13 @@ dns_nsupdate_rm() {
   [ -n "$DEBUG" ] && [ "$DEBUG" -ge "$DEBUG_LEVEL_1" ] && nsdebug="-d"
   [ -n "$DEBUG" ] && [ "$DEBUG" -ge "$DEBUG_LEVEL_2" ] && nsdebug="-D"
   if [ -z "${NSUPDATE_ZONE}" ]; then
-    nsupdate -k "${NSUPDATE_KEY}" $nsdebug <<EOF
+    _nsupdate <<EOF
 server ${NSUPDATE_SERVER}  ${NSUPDATE_SERVER_PORT} 
 update delete ${fulldomain}. txt
 send
 EOF
   else
-    nsupdate -k "${NSUPDATE_KEY}" $nsdebug <<EOF
+    _nsupdate <<EOF
 server ${NSUPDATE_SERVER}  ${NSUPDATE_SERVER_PORT}
 zone ${NSUPDATE_ZONE}.
 update delete ${fulldomain}. txt
@@ -94,5 +96,35 @@ _checkKeyFile() {
   if [ ! -r "${NSUPDATE_KEY}" ]; then
     _err "key ${NSUPDATE_KEY} is unreadable"
     return 1
+  fi
+  if [ -z "${NSUPDATE_TYPE}" ]; then
+    if _exists "file"; then
+      if file "${NSUPDATE_KEY}" | grep -q "Kerberos";then
+        NSUPDATE_TYPE="Kerberos"
+      else
+        NSUPDATE_TYPE="TSIG"
+      fi
+    else
+      _err "Can't determine ${NSUPDATE_KEY} type."
+      _err "Install file, or set type."
+      return 1
+    fi
+  fi
+}
+
+_nsupdate() {
+  if [ "$NSUPDATE_TYPE" = "Kerberos" ]; then
+    if _exists kinit; then
+      if ! kinit -k -t "${NSUPDATE_KEY}"; then
+        _err "Couldn't acquire kerberos ticket."
+        return 1
+      fi
+    else
+      _err "kinit not found."
+      return 1
+    fi
+    nsupdate -g
+  else
+    nsupdate -k "${NSUPDATE_KEY}"
   fi
 }
